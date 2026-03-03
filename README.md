@@ -56,7 +56,7 @@
 </tr>
 </table>
 
-> 使用方式：直接下载docx-editor-cn文件夹，放到对应skills目录下。
+> 使用方式：直接下载docx-editor-cn文件夹，放到对应skills目录下。<br>
 > 参考：https://support.claude.com/en/articles/12512180-use-skills-in-claude <br>
 >       https://skillsmp.com/zh/docs#when-to-use <br>
 >       https://opencode.ai/docs/zh-cn/skills/ <br>

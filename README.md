@@ -329,7 +329,7 @@ new Paragraph({ style: 'MyCustomStyle', children: [new TextRun('内容')] })
 
 ## 🧩 案例介绍
 Word版本：Microsoft Office LTSC Word 2021
-以下是一个使用`Open-Claude`+`OMO`+ 本Skill 生成的示例课程论文文档，展示了各种格式元素：
+以下是一个使用`OpenCode`+`OMO`+ 本Skill 生成的示例课程论文文档，展示了各种格式元素：
 - 调用指令
 <img src="./example/figure/Snipaste_2026-03-02_23-14-05.png" alt="案例截图" width="741" height="380">
 

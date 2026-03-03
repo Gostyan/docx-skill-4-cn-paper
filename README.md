@@ -9,7 +9,7 @@
 
 <p align="center">
   <strong>🎓 中文学术文档编辑器 Skill</strong><br>
-  用于 AI Agent 按照规定格式编辑 Word 文档或将 Markdown 转换为 docx
+  用于 AI Agent 按照规定格式编辑 Word 文档或将 Markdown 转换为 docx <br>
   适用文档：中文课程论文；中文毕业设计论文；中文数学建模论文 ...
 </p>
 

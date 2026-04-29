@@ -329,14 +329,10 @@ new Paragraph({ style: 'MyCustomStyle', children: [new TextRun('内容')] })
 ## 🧩 案例介绍
 Word版本：Microsoft Office LTSC Word 2021
 以下是一个使用`OpenCode`+`OMO`+ 本Skill 生成的示例课程论文文档，展示了各种格式元素：
-- 调用指令（示例）
+- 向Agent提供调用指令（示例）
 
-```bash
-# 在本地运行（示例）
-node docx-editor-cn/scripts/new_doc.js
-
-# 或在 Agent/平台（例如 OpenCode/OMO）中调用：
-# 向 skill `docx-editor-cn` 传入论文内容（标题、作者、章节、正文等），平台会触发运行并生成 .docx 文件。
+```
+使用skill `docx-editor-cn` ，按照其中流程和要求，帮我将`测试论文.md`转为排版好的docx格式的word文件
 ``` 
 
 - 标题层级与摘要、正文段落

@@ -324,14 +324,20 @@ new Paragraph({ style: 'MyCustomStyle', children: [new TextRun('内容')] })
 
 </details>
 
-
 ---
 
 ## 🧩 案例介绍
 Word版本：Microsoft Office LTSC Word 2021
 以下是一个使用`OpenCode`+`OMO`+ 本Skill 生成的示例课程论文文档，展示了各种格式元素：
-- 调用指令
-<img src="./example/figure/Snipaste_2026-03-02_23-14-05.png" alt="案例截图" width="741" height="380">
+- 调用指令（示例）
+
+```bash
+# 在本地运行（示例）
+node docx-editor-cn/scripts/new_doc.js
+
+# 或在 Agent/平台（例如 OpenCode/OMO）中调用：
+# 向 skill `docx-editor-cn` 传入论文内容（标题、作者、章节、正文等），平台会触发运行并生成 .docx 文件。
+``` 
 
 - 标题层级与摘要、正文段落
 <img src="./example/figure/Snipaste_2026-03-02_23-26-44.png" alt="标题层级示例" width="496" height="537">
@@ -353,7 +359,6 @@ Word版本：Microsoft Office LTSC Word 2021
 <img src="./example/figure/Snipaste_2026-03-02_23-30-34.png" alt="参考文献列表示例" width="509" height="217">
 
 - 等等...
-
 
 
 
@@ -405,6 +410,8 @@ Word版本：Microsoft Office LTSC Word 2021
 ```bash
 npm install docx temml fast-xml-parser
 ```
+
+若尚未安装 Node.js，请参考安装教程：https://blog.csdn.net/qq_45824320/article/details/136601535
 
 **可选 (用于编辑现有文档)**
 - 🐍 Python 3.x

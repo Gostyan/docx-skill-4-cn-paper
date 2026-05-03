@@ -1,5 +1,7 @@
 # 📄 docx-editor-cn
 
+> [在线试用（无需安装）](https://socialistic.ai/docx-skill-4-cn-paper-3e6e2f/?utm_source=github&utm_medium=readme&utm_campaign=non-coding-creators-0426&utm_content=hyperlink)
+
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Node.js-339933?style=flat-square&logo=node.js" alt="Node.js">
   <img src="https://img.shields.io/badge/Language-中文学术-red?style=flat-square" alt="中文">

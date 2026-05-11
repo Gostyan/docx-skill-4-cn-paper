@@ -4,11 +4,13 @@
  * All formatting is pre-configured to GB/T 7714 + Chinese university standards:
  *   - A4 page, 2.5 cm margins on all sides
  *   - SimSun 12pt body, SimHei headings (Cambria Math for English/numbers)
- *   - Manual multi-level heading numbering (synchronized counters)
+ *   - Word auto-numbering for H2/H3 headings (per-chapter reset via sections_cN references)
+ *   - Word auto-numbering for H2/H3 headings (per-chapter reset via sections_cN references)
+ *   - Figure/Table captions via Word SEQ fields (per-chapter: 图 1-1, 表 2-3)
  *   - Three-line table helper with proper border handling
  *   - LaTeX formula support (block and inline) via temml + Word native math
  *   - Citation superscript handling [n] format
- *   - Reference list [1][2][3] numbering
+ *   - Reference list [1][2][3] numbering (Word auto-numbered)
  *   - Footer: centered page number
  *
  * Usage:
@@ -31,8 +33,8 @@ const {
   Table, TableRow, TableCell,
   Header, Footer,
   PageNumber, AlignmentType, LineRuleType, HeadingLevel,
-  LevelFormat, BorderStyle, WidthType, ShadingType, VerticalAlign,
-  TableOfContents, PageBreak, ImageRun,
+  LevelFormat, LevelSuffix, BorderStyle, WidthType, ShadingType, VerticalAlign,
+  TableOfContents, PageBreak, ImageRun, SequentialIdentifier,
 } = require('docx');
 
 // MathML to docx Math converter
@@ -57,10 +59,9 @@ const THICK = { style: BorderStyle.SINGLE, size: 12, color: '000000' }; // 1.5 p
 const THIN  = { style: BorderStyle.SINGLE, size: 6,  color: '000000' }; // 0.75 pt
 const NONE  = { style: BorderStyle.NONE,   size: 0,  color: 'FFFFFF' };
 
-// ISSUE 3 FIX: Manual heading counters for synchronized numbering
-let currentChapter = 0;
-let currentSection = 0;
-let currentSubsection = 0;
+// Chapter counter — tracks current chapter for H2/H3/caption auto-numbering
+// Incremented by h1Chinese() at each chapter boundary
+let _chapter = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ISSUE 5/7 FIX: Inline Math Detection and Conversion
@@ -79,7 +80,11 @@ const UNICODE_TO_LATEX = {
   // Subscript digits
   '₀': '_0', '₁': '_1', '₂': '_2', '₃': '_3', '₄': '_4',
   '₅': '_5', '₆': '_6', '₇': '_7', '₈': '_8', '₉': '_9',
-  'ₙ': '_n', 'ₓ': '_x', 'ᵢ': '_i', 'ₜ': '_t', 'ₛ': '_s',
+  // Subscript Latin letters (full set)
+  'ₐ': '_a', 'ₑ': '_e', 'ₕ': '_h', 'ᵢ': '_i', 'ⱼ': '_j', 'ₖ': '_k',
+  'ₗ': '_l', 'ₘ': '_m', 'ₙ': '_n', 'ₒ': '_o', 'ₚ': '_p',
+  'ᵣ': '_r', 'ₛ': '_s', 'ₜ': '_t', 'ᵤ': '_u', 'ᵥ': '_v',
+  'ₓ': '_x', 'ᵧ': '_y', 'ᵦ': '\\beta', 'ᵧ': '\\gamma',
   // Superscript
   '⁰': '^0', '¹': '^1', '²': '^2', '³': '^3', '⁴': '^4',
   '⁵': '^5', '⁶': '^6', '⁷': '^7', '⁸': '^8', '⁹': '^9',
@@ -93,22 +98,58 @@ const UNICODE_TO_LATEX = {
   '×': '\\times', '÷': '\\div', '±': '\\pm', '∓': '\\mp',
   '·': '\\cdot', '…': '\\ldots', '⋯': '\\cdots',
   '′': "'", '″': "''",
-  '⟨': '\\langle', '⟩': '\\rangle',
+  '⟨': '\\langle ', '⟩': ' \\rangle',
   // Superscript letter (for π*, Q*, etc.)
   '*': '^*',
 };
 
+// Full regex character classes for detection — must be kept in sync with UNICODE_TO_LATEX keys
+const GREEK_CHARS   = 'αβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΦΨΩ';
+const SUB_SUP_CHARS = '₀₁₂₃₄₅₆₇₈₉ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓᵧᵦ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿⁱ';
+const MATH_OPS      = '∞∑∏∫≤≥≠≈→←↔∈∉⊂⊃∀∃∧∨×÷±∓·…⋯′″⟨⟩';
+const GREEK_CLASS   = new RegExp(`[${GREEK_CHARS}]`);
+const SUB_SUP_CLASS = new RegExp(`[${SUB_SUP_CHARS}]`);
+const MATH_OPS_CLASS = new RegExp(`[${MATH_OPS}]`);
+
 /**
- * Convert text with Unicode math symbols to LaTeX format
+ * Convert text with Unicode math symbols to LaTeX format.
+ * Also handles combining macron ̄ (e.g. r̄ → \bar{r}).
  * @param {string} text - Text with Unicode math symbols
  * @returns {string} LaTeX formatted text
  */
 function unicodeToLatex(text) {
-  let result = text;
+  // Normalize combining marks: (letter)(̄) → \bar{letter}
+  let result = text.replace(/([A-Za-z])̄/g, '\\bar{$1}');
+  // Normalize bare ^ and _ to LaTeX braced form: n^i → n^{i}, x_n → x_{n}
+  // Use negative lookahead to skip already-braced forms like ^{xy}
+  result = result.replace(/(\^|_)(?!\{)([A-Za-z0-9]+)/g, '$1{$2}');
   for (const [unicode, latex] of Object.entries(UNICODE_TO_LATEX)) {
     result = result.split(unicode).join(latex);
   }
   return result;
+}
+
+/**
+ * Find full extent of a [_^]{...} expression with nested brace counting.
+ * @param {string} text - Full text
+ * @param {number} pos - Position of the ^ or _ character
+ * @returns {{start: number, end: number}}|null
+ */
+function findBracedExtent(text, pos) {
+  let start = pos - 1;
+  while (start >= 0 && /[A-Za-z0-9]/.test(text[start])) start--;
+  start++;
+  const braceOpen = pos + 1;
+  if (braceOpen >= text.length || text[braceOpen] !== '{') return null;
+  let depth = 1;
+  let i = braceOpen + 1;
+  while (i < text.length && depth > 0) {
+    if (text[i] === '{') depth++;
+    if (text[i] === '}') depth--;
+    i++;
+  }
+  if (depth !== 0) return null;
+  return { start, end: i };
 }
 
 /**
@@ -118,16 +159,21 @@ function unicodeToLatex(text) {
  * @returns {boolean}
  */
 function containsMath(text) {
-  // Detect Greek letters
-  if (/[αβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΦΨΩ]/.test(text)) return true;
-  // Detect Unicode subscript/superscript characters
-  if (/[₀₁₂₃₄₅₆₇₈₉ₙₓᵢₜₛ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿⁱ]/.test(text)) return true;
-  // Detect math operators and special symbols
-  if (/[∞∑∏∫≤≥≠≈→←↔∈∉⊂⊃∀∃∧∨×÷±∓·…⋯′″⟨⟩]/.test(text)) return true;
-  // Detect starred symbols like π*, Q* (but not plain words like Agent)
+  if (GREEK_CLASS.test(text)) return true;
+  if (SUB_SUP_CLASS.test(text)) return true;
+  if (MATH_OPS_CLASS.test(text)) return true;
+  // Starred symbols like π*, Q*
   if (/[A-Z]\*/.test(text)) return true;
-  // Detect $...$ LaTeX delimiters
+  // $...$ LaTeX delimiters
   if (/\$[^$]+\$/.test(text)) return true;
+  // LaTeX-style subscripts/superscripts: _{xy}, ^{2}, _{n+1}
+  if (/[_^]\{[^}]+\}/.test(text)) return true;
+  // Bare _ and ^ subscripts/superscripts: n^i, x_n, i_h, P_xy
+  if (/[A-Za-z]\d*[_^][a-zA-Z0-9]/.test(text)) return true;
+  // Backslash LaTeX commands: \leq, \alpha, \bar{x}, \frac{a}{b} etc.
+  if (/\\[a-zA-Z]/.test(text)) return true;
+  // Combining macron above letter
+  if (/[A-Za-z]̄/.test(text)) return true;
   return false;
 }
 
@@ -145,66 +191,86 @@ function containsCitation(text) {
  * @returns {Array} Array of TextRun and Math objects
  */
 function parseInlineContent(text) {
+  // Regex for non-braced patterns (_{...} with simple content handled by regex, nested handled below)
+  const mathPattern = new RegExp(
+    `\\$([^$]+)\\$` +
+    `|(\\\\[a-zA-Z]+\\{[^}]*\\}[ \\t]*\\{[^}]*\\})` +
+    `|(\\\\[a-zA-Z]+\\{[^}]*\\})` +
+    `|(\\\\[a-zA-Z]+)` +
+    `|([A-Za-z${GREEK_CHARS}]+[_^]\\{[^}]+\\})` +
+    `|([A-Za-z]+\\d*[_^][a-zA-Z0-9]+\\s*\\([^)]+\\))` +
+    `|([A-Za-z]+\\d*[_^][a-zA-Z0-9]+)` +
+    `|([A-Z][${SUB_SUP_CHARS}]+\\*?\\s*\\([^)]+\\))` +
+    `|([A-Z]\\*\\s*\\([^)]+\\))` +
+    `|([A-Z]\\s*\\([^)]*[${GREEK_CHARS}${SUB_SUP_CHARS}][^)]*\\))` +
+    `|([${GREEK_CHARS}][${SUB_SUP_CHARS}]*\\*?)` +
+    `|([A-Za-z]+[${SUB_SUP_CHARS}]+\\*?)` +
+    `|([A-Z]\\*)` +
+    `|([${MATH_OPS}])`,
+    'g');
+
+  // Find nested-brace expressions first (_{...{...}...} and ^{...{...}...})
+  const nested = [];
+  const trigger = /[_^]\{/g;
+  let t;
+  while ((t = trigger.exec(text)) !== null) {
+    const ext = findBracedExtent(text, t.index);
+    if (ext && ext.start < t.index && ext.end - ext.start > t[0].length + 1) {
+      // Is actually nested (extent longer than simple _{x})
+      nested.push({ start: ext.start, end: ext.end, content: text.slice(ext.start, ext.end) });
+    }
+  }
+
   const children = [];
-  
-  // Regex matching math content blocks (in priority order):
-  // 1. $...$  explicit LaTeX (highest priority)
-  // 2. Function form Q(s,a) V(s) Rₓ(a) etc. (only with subscripts or specific single letters)
-  // 3. Greek letters (alone or with subscripts)
-  // 4. Variables with subscripts like Qₙ xₙ αₙ etc.
-  // 5. Starred symbols like π* Q* (single letter only)
-  // 
-  // NOTE: Does NOT match plain English words like Agent, Watkins, Dayan
-  // Does NOT match plain numbers like 1992, 500
-  // Does NOT match plain parentheses expressions like (1992)
-  
-  const mathPattern = /\$([^$]+)\$|([A-Z][₀₁₂₃₄₅₆₇₈₉ₙₓᵢₜₛ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿⁱ]+\*?\s*\([^)]+\))|([A-Z]\s*\([^)]*[αβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΦΨΩ₀₁₂₃₄₅₆₇₈₉ₙₓᵢₜₛ][^)]*\))|([αβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΦΨΩ][₀₁₂₃₄₅₆₇₈₉ₙₓᵢₜₛ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿⁱ]*\*?)|([A-Za-z][₀₁₂₃₄₅₆₇₈₉ₙₓᵢₜₛ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿⁱ]+\*?)|([A-Z]\*)/g;
-  
   let lastIndex = 0;
-  let match;
-  
-  while ((match = mathPattern.exec(text)) !== null) {
-    // Add plain text before match
-    if (match.index > lastIndex) {
-      const plainText = text.slice(lastIndex, match.index);
-      if (plainText) {
-        children.push(new TextRun(plainText));
-      }
-    }
-    
-    // Get matched math content
-    const mathContent = match[1] || match[2] || match[3] || match[4] || match[5] || match[6];
-    if (mathContent) {
-      // Convert Unicode to LaTeX and create Math object
-      const latex = unicodeToLatex(mathContent);
-      try {
-        const mathml = temml.renderToString(latex, { displayMode: false, throwOnError: false });
-        const mathChildren = mathmlToDocxChildren(mathml);
-        if (mathChildren && mathChildren.length) {
-          children.push(new Math({ children: mathChildren }));
-        } else {
-          // fallback
-          children.push(new Math({ children: [new MathRun(mathContent)] }));
+  let m;
+  while ((m = mathPattern.exec(text)) !== null) {
+    // Skip matches inside nested-brace regions
+    if (nested.some(n => m.index + m[0].length > n.start && m.index < n.end)) continue;
+    if (m.index > lastIndex) {
+      // Insert any nested matches that fall in the gap
+      for (const n of nested) {
+        if (n.start >= lastIndex && n.start < m.index) {
+          if (n.start > lastIndex) children.push(new TextRun(text.slice(lastIndex, n.start)));
+          const latex = unicodeToLatex(n.content);
+          try {
+            const ml = temml.renderToString(latex, { displayMode: false, throwOnError: false });
+            const kids = mathmlToDocxChildren(ml);
+            children.push(new Math({ children: kids && kids.length ? kids : [new MathRun(n.content)] }));
+          } catch (e) { children.push(new Math({ children: [new MathRun(n.content)] })); }
+          lastIndex = n.end;
         }
-      } catch (e) {
-        // Parse failed, use MathRun to display original text
-        children.push(new Math({ children: [new MathRun(mathContent)] }));
+      }
+      if (m.index > lastIndex) children.push(new TextRun(text.slice(lastIndex, m.index)));
+    }
+    const mc = m[1] || m[2] || m[3] || m[4] || m[5] || m[6] || m[7] || m[8] || m[9] || m[10] || m[11] || m[12] || m[13] || m[14];
+    if (mc) {
+      const latex = unicodeToLatex(mc);
+      try {
+        const ml = temml.renderToString(latex, { displayMode: false, throwOnError: false });
+        const kids = mathmlToDocxChildren(ml);
+        children.push(new Math({ children: kids && kids.length ? kids : [new MathRun(mc)] }));
+      } catch (e) { children.push(new Math({ children: [new MathRun(mc)] })); }
+    }
+    lastIndex = m.index + m[0].length;
+  }
+  // Handle remaining text and nested matches after the last regex match
+  if (lastIndex < text.length) {
+    for (const n of nested) {
+      if (n.start >= lastIndex) {
+        if (n.start > lastIndex) children.push(new TextRun(text.slice(lastIndex, n.start)));
+        const latex = unicodeToLatex(n.content);
+        try {
+          const ml = temml.renderToString(latex, { displayMode: false, throwOnError: false });
+          const kids = mathmlToDocxChildren(ml);
+          children.push(new Math({ children: kids && kids.length ? kids : [new MathRun(n.content)] }));
+        } catch (e) { children.push(new Math({ children: [new MathRun(n.content)] })); }
+        lastIndex = n.end;
       }
     }
-    
-    lastIndex = match.index + match[0].length;
+    if (lastIndex < text.length) children.push(new TextRun(text.slice(lastIndex)));
   }
-  
-  // Add remaining plain text
-  if (lastIndex < text.length) {
-    children.push(new TextRun(text.slice(lastIndex)));
-  }
-  
-  // If no math content matched, return plain text
-  if (children.length === 0) {
-    children.push(new TextRun(text));
-  }
-  
+  if (children.length === 0) children.push(new TextRun(text));
   return children;
 }
 
@@ -215,62 +281,54 @@ function parseInlineContent(text) {
  * @returns {Array} Array of TextRun and Math objects
  */
 function parseInlineContentWithCitations(text) {
+  const combinedPattern = new RegExp(
+    `(\\[\\d+\\])` +
+    `|\\$([^$]+)\\$` +
+    `|(\\\\[a-zA-Z]+\\{[^}]*\\}[ \\t]*\\{[^}]*\\})` +
+    `|(\\\\[a-zA-Z]+\\{[^}]*\\})` +
+    `|(\\\\[a-zA-Z]+)` +
+    `|([A-Za-z${GREEK_CHARS}]+[_^]\\{[^}]+\\})` +
+    `|([A-Za-z]+\\d*[_^][a-zA-Z0-9]+\\s*\\([^)]+\\))` +
+    `|([A-Za-z]+\\d*[_^][a-zA-Z0-9]+)` +
+    `|([A-Z][${SUB_SUP_CHARS}]+\\*?\\s*\\([^)]+\\))` +
+    `|([A-Z]\\*\\s*\\([^)]+\\))` +
+    `|([A-Z]\\s*\\([^)]*[${GREEK_CHARS}${SUB_SUP_CHARS}][^)]*\\))` +
+    `|([${GREEK_CHARS}][${SUB_SUP_CHARS}]*\\*?)` +
+    `|([A-Za-z]+[${SUB_SUP_CHARS}]+\\*?)` +
+    `|([A-Z]\\*)` +
+    `|([${MATH_OPS}])`,
+    'g');
+
   const children = [];
-  
-  // Combined regex: match math content or citations
-  // Citations [n] become superscript
-  // Math content becomes Math objects
-  const combinedPattern = /(\[\d+\])|\$([^$]+)\$|([A-Z][₀₁₂₃₄₅₆₇₈₉ₙₓᵢₜₛ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿⁱ]+\*?\s*\([^)]+\))|([A-Z]\s*\([^)]*[αβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΦΨΩ₀₁₂₃₄₅₆₇₈₉ₙₓᵢₜₛ][^)]*\))|([αβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΦΨΩ][₀₁₂₃₄₅₆₇₈₉ₙₓᵢₜₛ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿⁱ]*\*?)|([A-Za-z][₀₁₂₃₄₅₆₇₈₉ₙₓᵢₜₛ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿⁱ]+\*?)|([A-Z]\*)/g;
-  
   let lastIndex = 0;
-  let match;
-  
-  while ((match = combinedPattern.exec(text)) !== null) {
-    // Add plain text before match
-    if (match.index > lastIndex) {
-      const plainText = text.slice(lastIndex, match.index);
-      if (plainText) {
-        children.push(new TextRun(plainText));
-      }
+  let m;
+  while ((m = combinedPattern.exec(text)) !== null) {
+    if (m.index > lastIndex) {
+      children.push(new TextRun(text.slice(lastIndex, m.index)));
     }
-    
-    if (match[1]) {
-      // Citation [n] - convert to superscript
-      children.push(new TextRun({
-        text: match[1],
-        superScript: true,
-      }));
+    if (m[1]) {
+      children.push(new TextRun({ text: m[1], superScript: true }));
     } else {
-      // Math content
-      const mathContent = match[2] || match[3] || match[4] || match[5] || match[6] || match[7];
-      if (mathContent) {
-        const latex = unicodeToLatex(mathContent);
+      const mc = m[2] || m[3] || m[4] || m[5] || m[6] || m[7] || m[8] || m[9] || m[10] || m[11] || m[12] || m[13] || m[14] || m[15];
+      if (mc) {
+        const latex = unicodeToLatex(mc);
         try {
           const mathml = temml.renderToString(latex, { displayMode: false, throwOnError: false });
           const mathChildren = mathmlToDocxChildren(mathml);
           if (mathChildren && mathChildren.length) {
             children.push(new Math({ children: mathChildren }));
           } else {
-            children.push(new Math({ children: [new MathRun(mathContent)] }));
+            children.push(new Math({ children: [new MathRun(mc)] }));
           }
         } catch (e) {
-          children.push(new Math({ children: [new MathRun(mathContent)] }));
+          children.push(new Math({ children: [new MathRun(mc)] }));
         }
       }
     }
-    
-    lastIndex = match.index + match[0].length;
+    lastIndex = m.index + m[0].length;
   }
-  
-  // Add remaining plain text
-  if (lastIndex < text.length) {
-    children.push(new TextRun(text.slice(lastIndex)));
-  }
-  
-  if (children.length === 0) {
-    children.push(new TextRun(text));
-  }
-  
+  if (lastIndex < text.length) children.push(new TextRun(text.slice(lastIndex)));
+  if (children.length === 0) children.push(new TextRun(text));
   return children;
 }
 
@@ -299,21 +357,15 @@ function bodyMulti(runs) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ISSUE 3 FIX: Manual heading numbering for synchronized counters
+// Heading numbering — H1 uses Chinese numerals in text, H2/H3 use Word auto-numbering
+// Per-chapter numbering references (sections_c1, sections_c2, ...) ensure H2/H3
+// reset at each chapter boundary. Adding/removing sections within a chapter
+// auto-updates all numbers.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Reset heading counters (call at start of document) */
-function resetHeadingCounters() {
-  currentChapter = 0;
-  currentSection = 0;
-  currentSubsection = 0;
-}
-
-/** H1 - Level 1 heading (manual Chinese numbering: 一、二、三) */
-function h1Manual(text) {
-  currentChapter++;
-  currentSection = 0;
-  currentSubsection = 0;
+/** H1 — Chapter heading with Chinese numeral in text (一、二、三...) */
+function h1Chinese(text) {
+  _chapter++;
   return new Paragraph({
     heading: HeadingLevel.HEADING_1,
     indent: { firstLine: 0 },
@@ -321,51 +373,54 @@ function h1Manual(text) {
   });
 }
 
-/** H1 with auto-numbering (→ 1  2  3) - use when you want Arabic numerals */
-function h1(text) {
-  currentChapter++;
-  currentSection = 0;
-  currentSubsection = 0;
-  return new Paragraph({
-    heading: HeadingLevel.HEADING_1,
-    indent: { firstLine: 0 },
-    children: [new TextRun(`${currentChapter} ${text}`)],
-  });
-}
-
-/** H2 - Level 2 heading (manual numbering: chapter.section, e.g., 1.1, 2.3) */
+/** H2 — Section heading with Word auto-numbering (1, 2, 3 per chapter) */
 function h2(text) {
-  currentSection++;
-  currentSubsection = 0;
   return new Paragraph({
     heading: HeadingLevel.HEADING_2,
+    numbering: { reference: `sections_c${_chapter}`, level: 0 },
     indent: { firstLine: 0 },
-    children: [new TextRun(`${currentChapter}.${currentSection} ${text}`)],
+    children: [new TextRun(text)],
   });
 }
 
-/** H3 - Level 3 heading (manual numbering: chapter.section.subsection, e.g., 1.1.1) */
+/** H3 — Subsection heading with Word auto-numbering (1.1, 1.2 per chapter) */
 function h3(text) {
-  currentSubsection++;
   return new Paragraph({
     heading: HeadingLevel.HEADING_3,
+    numbering: { reference: `sections_c${_chapter}`, level: 1 },
     indent: { firstLine: 0 },
-    children: [new TextRun(`${currentChapter}.${currentSection}.${currentSubsection} ${text}`)],
+    children: [new TextRun(text)],
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: captions - ISSUE 4 FIX: Mixed fonts for English/numbers
+// Helper: captions — using Word SEQ fields for per-chapter auto-numbering
+// Figure captions render as "图 章-序" (e.g., 图 1-1, 图 3-2)
+// Table captions render as "表 章-序" (e.g., 表 1-1, 表 2-3)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Figure caption (below figure). label e.g. "图 1-1 系统架构" */
-function figCaption(label) {
-  return new Paragraph({ style: 'FigureCaption', children: [new TextRun(label)] });
+/** Figure caption with per-chapter SEQ auto-numbering */
+function figCaption(text) {
+  return new Paragraph({
+    style: 'FigureCaption',
+    children: [
+      new TextRun(`图 ${_chapter}-`),
+      new SequentialIdentifier(`figure_c${_chapter}`),
+      new TextRun(` ${text}`),
+    ],
+  });
 }
 
-/** Table caption (above table). label e.g. "表 1-1 符号说明" */
-function tableCaption(label) {
-  return new Paragraph({ style: 'TableCaption', children: [new TextRun(label)] });
+/** Table caption with per-chapter SEQ auto-numbering */
+function tableCaption(text) {
+  return new Paragraph({
+    style: 'TableCaption',
+    children: [
+      new TextRun(`表 ${_chapter}-`),
+      new SequentialIdentifier(`table_c${_chapter}`),
+      new TextRun(` ${text}`),
+    ],
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -469,6 +524,22 @@ function ref(text) {
 
 function blank() {
   return new Paragraph({ children: [] });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Markdown detection helpers — strip manual numbering from input text
+// ─────────────────────────────────────────────────────────────────────────────
+
+function stripH1Number(text) {
+  return text.replace(/^(?:[一二三四五六七八九十]+)[、．.]\s*/, '');
+}
+
+function stripH2Number(text) {
+  return text.replace(/^\d+\.\d+\s+/, '');
+}
+
+function stripCaptionNumber(text) {
+  return text.replace(/^(?:图|表)\s*\d+[-–—]\d+\s*/, '');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -655,8 +726,15 @@ const STYLES = {
   ],
 };
 
-const NUMBERING = {
-  config: [
+/**
+ * Build numbering config dynamically based on chapter count.
+ * Each chapter gets its own numbering reference (sections_c1, sections_c2, ...)
+ * so H2/H3 auto-numbering resets per chapter.
+ * @param {number} chapterCount - Total number of chapters in the document
+ * @returns {object} Numbering config for Document constructor
+ */
+function buildNumberingConfig(chapterCount) {
+  const configs = [
     {
       reference: 'references',
       levels: [
@@ -681,15 +759,28 @@ const NUMBERING = {
           style: { paragraph: { indent: { left: 720, hanging: 360 } } } },
       ],
     },
-  ],
-};
+  ];
+
+  for (let c = 1; c <= chapterCount; c++) {
+    configs.push({
+      reference: `sections_c${c}`,
+      levels: [
+        { level: 0, format: LevelFormat.DECIMAL, text: `${c}.%1`,
+          suffix: LevelSuffix.SPACE, alignment: AlignmentType.LEFT },
+        { level: 1, format: LevelFormat.DECIMAL, text: `${c}.%1.%2`,
+          suffix: LevelSuffix.SPACE, alignment: AlignmentType.LEFT },
+      ],
+    });
+  }
+
+  return { config: configs };
+}
+
+const NUMBERING = buildNumberingConfig(3);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ██  CONTENT SECTION — Edit below this line  ████████████████████████████████
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Reset counters before building content
-resetHeadingCounters();
 
 const CONTENT = [
   // ── Example: Title (manual, no heading style) ──────────────────────────────
@@ -724,7 +815,7 @@ const CONTENT = [
   // pageBreak(),
 
   // ── Section 1 ──────────────────────────────────────────────────────────────
-  h1Manual('一、引言'),
+  h1Chinese('一、引言'),
   blank(),
   body('强化学习（Reinforcement Learning）是机器学习的一个重要分支。'),
 
@@ -745,7 +836,7 @@ const CONTENT = [
 
   // ── Table example ──────────────────────────────────────────────────────────
   blank(),
-  tableCaption('表 1-1 符号说明'),
+  tableCaption('符号说明'),
   threeLineTable(
     ['符号', '说明'],
     [
@@ -758,7 +849,7 @@ const CONTENT = [
   blank(),
 
   // ── Section 2 ──────────────────────────────────────────────────────────────
-  h1Manual('二、方法'),
+  h1Chinese('二、方法'),
   blank(),
   body('本文提出一种改进的 Q-learning 算法。'),
 

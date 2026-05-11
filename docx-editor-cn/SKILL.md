@@ -184,7 +184,7 @@ const doc = new Document({
 **For new documents — use `threeLineTable()` helper in `scripts/new_doc.js`:**
 ```javascript
 // Inside the CONTENT array:
-tableCaption('表 1-1 符号说明'),
+tableCaption('符号说明'),
 threeLineTable(
   ['符号', '说明'],                       // headers
   [['S', '状态空间'], ['A', '动作空间']], // data rows
@@ -207,7 +207,7 @@ python scripts/table.py unpacked/ "2-1" "参数" \\
     --widths "1800,1500,5770"
 
 # Print XML snippet only (no file modification):
-python scripts/table.py --caption "表 1-1 示例" \\
+python scripts/table.py --caption "示例" \\
     --headers "列1,列2" --rows '[["a","b"]]'
 ```
 
@@ -279,34 +279,59 @@ sections: [{
 }]
 ```
 
-### Heading & Reference Auto-Numbering
+### Heading Auto-Numbering (Word per-chapter reset)
 
-The numbering config is pre-built in `scripts/new_doc.js`. Use the `h1/h2/h3()` helpers — numbering is applied automatically.
+H1 uses Chinese numerals written literally in text (一、二、三). H2/H3 use **Word auto-numbering** via per-chapter numbering references (`sections_c1`, `sections_c2`, ...). Each chapter boundary resets H2/H3 counters automatically — adding/removing sections within a chapter triggers full auto-update.
 
 **CRITICAL — numbering format rule:**
 
-| Scheme | H1 | H2 | H3 | Chapter tracking |
-|--------|----|----|-----|------------------|
-| ✅ All-decimal (used in `new_doc.js`) | `1` `2` `3` | `1.1` `2.4` | `1.1.1` | ✔ automatic |
-| ❌ Mixed Chinese+Arabic | `一` `二` | `一.1` `二.4` ← **broken** | `二.4.1` ← **broken** | ✘ |
-
 NEVER use `LevelFormat.CHINESE_COUNTING` for H1 in a multi-level config — `%1` in H2 text expands to "二", giving `二.4`. Always use `LevelFormat.DECIMAL` for every level.
 
-To display `一、二、三` on H1, write the Chinese character **in the paragraph text** and call `h1()` without a numbering override. H2/H3 auto-number then shows `1`, `1.1` etc. independently per chapter (not cross-chapter `2.4`). Use Option A (`h1('引言')`) if full cross-chapter tracking like `2.4` is needed.
+Numbering references are generated dynamically by `buildNumberingConfig(chapterCount)`. Each chapter gets its own `sections_c{N}` reference with 2 levels (H2, H3). This ensures H2/H3 reset per chapter while Word handles all numbering.
 
 ```javascript
-// Option A — full auto-numbering (H1: 1 2 3, H2: 1.1 2.4, H3: 1.1.1)
-h1('引言')         // → numbered "1"
-h2('研究背景')     // → numbered "1.1"
-h3('研究现状')     // → numbered "1.1.1"
-h1('方法')         // → numbered "2"
-h2('算法设计')     // → numbered "2.1"
+// H1 — Chinese numerals in text (no Word numbering)
+h1Chinese('一、引言')   // → "一、引言"  (Heading1 style)
 
-// Option B — Chinese H1 text, Arabic H2/H3 (only if cross-chapter prefix not needed)
-new Paragraph({ heading: HeadingLevel.HEADING_1, indent: { firstLine: 0 },
-  children: [new TextRun('一、引言')] })  // no numbering on H1
-h2('研究背景')   // → 1  (resets each chapter, no "1.1")
-h3('研究现状')   // → 1.1
+// H2 — Word auto-numbered, chapter.section format (1.1, 2.4)
+h2('研究背景')          // → "1.1  研究背景"  (Word: sections_c1, level 0)
+h2('文献综述')          // → "1.2  文献综述"
+
+// H3 — Word auto-numbered, chapter.section.subsection format (1.1.1)
+h3('研究现状')          // → "1.1.1  研究现状"  (Word: sections_c1, level 1)
+h3('存在不足')          // → "1.1.2  存在不足"
+
+// Next chapter — H2/H3 auto-reset with new chapter prefix
+h1Chinese('二、方法')   // _chapter increments, sections_c2 used
+h2('算法设计')          // → "2.1  算法设计"  (reset + "2." prefix)
+h3('数据结构')          // → "2.1.1  数据结构"
+```
+
+The `_chapter` counter is incremented by `h1Chinese()` and used by `h2()`, `h3()`, `figCaption()`, and `tableCaption()` to select the correct numbering reference / SEQ identifier.
+
+### Caption Auto-Numbering (SEQ Fields)
+
+Captions use Word **SEQ fields** for per-chapter auto-numbering. The chapter number is a literal prefix, and the sequence counter is chapter-specific (e.g., `figure_c3`, `table_c1`).
+
+```javascript
+// Figure captions — auto: "图 章-序  描述"
+figCaption('系统架构图')   // → "图 1-1  系统架构图"  (SEQ figure_c1)
+figCaption('数据流图')     // → "图 1-2  数据流图"
+
+// Table captions — auto: "表 章-序  描述"
+tableCaption('符号说明')   // → "表 1-1  符号说明"  (SEQ table_c1)
+```
+
+Pass ONLY the description text. Never include manual "图 3-1" or "表 1-1" prefixes — the SEQ field handles numbering automatically.
+
+### Markdown Number Stripping
+
+When converting markdown, use these helpers to strip manual numbers from input text:
+
+```javascript
+stripH1Number('一、引言')          // → "引言"
+stripH2Number('1.1 研究背景')     // → "研究背景"
+stripCaptionNumber('图 3-1 系统') // → "系统"
 ```
 
 ### Block Formula Layout
@@ -444,7 +469,8 @@ new Paragraph({
 - **Never use unicode bullets** - use `LevelFormat.BULLET` with numbering config
 - **PageBreak must be in Paragraph** - standalone creates invalid XML
 - **ImageRun requires `type`** - always specify png/jpg/etc
-- **Heading numbering: all-decimal only** - NEVER use `LevelFormat.CHINESE_COUNTING` in a multi-level config; it causes H2/H3 to render as `二.4` instead of `2.4`. Use `LevelFormat.DECIMAL` for every level; write Chinese characters (一、二、) manually in H1 paragraph text if needed.
+- **Heading numbering: per-chapter Word auto-numbering** — H1 uses Chinese numerals in text (一、二、三) via `h1Chinese()`. H2/H3 use Word auto-numbering via per-chapter `sections_c{N}` references generated by `buildNumberingConfig(chapterCount)`. NEVER use `LevelFormat.CHINESE_COUNTING` in a multi-level config. Pass heading text WITHOUT manual number prefixes — Word handles all numbering.
+- **Figure/Table captions: no manual numbers** — use `figCaption('描述')` without "图 3-1 " prefix. SEQ fields generate "图 章-序 描述" automatically. Same for `tableCaption()`. Use `stripCaptionNumber()` to clean markdown input.
 - **Tables MUST be 三线表** - use thick top/bottom borders (size:12, 1.5pt) and thin header-bottom border (size:6, 0.75pt); set all other borders to `BorderStyle.NONE`; no fill color on header cells
 - **Table caption: no first-line indent** - override Normal style's `firstLine` with `indent: { firstLine: 0 }` on the caption paragraph
 - **Block formulas use 3-column table** - [567 DXA spacer | 7936 DXA formula centered | 567 DXA number right-aligned]; use `scripts/formula.py` to generate; never use plain `$$` LaTeX in the final docx
@@ -726,41 +752,39 @@ return new Table({
 });
 ```
 
-#### Issue 3: Heading Numbering Out of Sync
+#### Issue 3: Heading Numbering — Word Auto-Numbering with Per-Chapter Reset
 
-**Problem**: Multi-level heading numbers (1.1, 1.2, 2.1) were not synchronized across chapters.
+**Problem**: Originally, heading numbering was baked into paragraph text via manual JS counters. When content was added/removed in Word, numbers did not update.
 
-**Solution**: Use manual counters instead of Word's auto-numbering:
+**Solution**: H2/H3 use Word's native auto-numbering via per-chapter numbering references. H1 keeps Chinese numerals in text (一、二、三). The `buildNumberingConfig(chapterCount)` function generates a `sections_c{N}` numbering reference for each chapter with 2 levels. At each chapter boundary, `_chapter` increments and H2/H3 switch to a fresh numbering reference, achieving automatic reset.
 
 ```javascript
-let currentChapter = 0;
-let currentSection = 0;
-let currentSubsection = 0;
+let _chapter = 0;
 
-function h1(text) {
-  currentChapter++;
-  currentSection = 0;      // Reset on chapter change
-  currentSubsection = 0;
+function h1Chinese(text) {  // Chinese numeral in text
+  _chapter++;
   return new Paragraph({
     heading: HeadingLevel.HEADING_1,
-    children: [new TextRun(`${currentChapter} ${text}`)],
+    indent: { firstLine: 0 },
+    children: [new TextRun(text)],
   });
 }
 
-function h2(text) {
-  currentSection++;
-  currentSubsection = 0;   // Reset on section change
+function h2(text) {  // Word auto-numbered (level 0 in per-chapter ref)
   return new Paragraph({
     heading: HeadingLevel.HEADING_2,
-    children: [new TextRun(`${currentChapter}.${currentSection} ${text}`)],
+    numbering: { reference: `sections_c${_chapter}`, level: 0 },
+    indent: { firstLine: 0 },
+    children: [new TextRun(text)],
   });
 }
 
-function h3(text) {
-  currentSubsection++;
+function h3(text) {  // Word auto-numbered (level 1 in per-chapter ref)
   return new Paragraph({
     heading: HeadingLevel.HEADING_3,
-    children: [new TextRun(`${currentChapter}.${currentSection}.${currentSubsection} ${text}`)],
+    numbering: { reference: `sections_c${_chapter}`, level: 1 },
+    indent: { firstLine: 0 },
+    children: [new TextRun(text)],
   });
 }
 ```

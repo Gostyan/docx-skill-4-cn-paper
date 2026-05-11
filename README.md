@@ -57,7 +57,8 @@
 </table>
 
 > 使用方式：直接下载docx-editor-cn文件夹，放到对应skills目录下。<br>
-> 参考：https://support.claude.com/en/articles/12512180-use-skills-in-claude <br>
+> 参考：
+> https://support.claude.com/en/articles/12512180-use-skills-in-claude <br>
 >       https://skillsmp.com/zh/docs#when-to-use <br>
 >       https://opencode.ai/docs/zh-cn/skills/ <br>
 
@@ -376,6 +377,12 @@ Word版本：Microsoft Office LTSC Word 2021
 | 7 | 行内公式匹配错误 | ✅ | 严格正则排除纯数字/单词 |
 | 8 | 引用非上标格式 | ✅ | 检测 `[n]` 设置 `superScript` |
 | 10 | 缺少分页符 | ✅ | `pageBreak()` 函数 |
+| 11 | 多级标题自动编号 | ✅ | `buildNumberingConfig(chapterCount)` 函数 |
+
+### 最新更新内容：
+- **2026-05-11**：修复多级标题自动编号问题，新增 `buildNumberingConfig(chapterCount)` 函数动态生成 Word 编号引用，实现章节内 H2/H3 自动编号和跨章节重置。
+- **2026-05-11**：优化了公式检测的正则表达式，提高了鲁棒性。
+
 
 ---
 
@@ -422,7 +429,7 @@ MIT License - 详见 [LICENSE.txt](LICENSE.txt)
 
 ---
 ## 🚩 Todo
-- [ ] 支持更多文档元素（目录、自动跳转）
+- [x] 支持更多文档元素（目录、多级标题）
 - [ ] 增强 Markdown 转换（适应word公式编辑器公式语法规定）
 - [ ] 优化工作流性能（大文档处理速度）
 

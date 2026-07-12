@@ -1,5 +1,7 @@
 # 📄 docx-editor-cn
 
+[![在 Socialistic 上试用 docx-editor-cn](https://socialistic.ai/api/embed/docx-skill-4-cn-paper-3e6e2f?lang=zh)](https://socialistic.ai/zh/skill/docx-skill-4-cn-paper-3e6e2f/?utm_source=github&utm_medium=readme&utm_content=badge&utm_campaign=manual_copy)
+
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Node.js-339933?style=flat-square&logo=node.js" alt="Node.js">
   <img src="https://img.shields.io/badge/Language-中文学术-red?style=flat-square" alt="中文">
